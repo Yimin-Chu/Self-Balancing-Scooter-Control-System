@@ -1,0 +1,81 @@
+############################
+# OS
+############################
+.DS_Store
+Thumbs.db
+
+############################
+# VSCode
+############################
+.vscode/
+
+############################
+# Build folders (generic)
+############################
+build/
+Build/
+Debug/
+Release/
+Objects/
+Listings/
+
+############################
+# Keil MDK-ARM
+############################
+*.uvguix.*
+*.uvoptx
+*.dep
+*.bak
+*.lst
+*.map
+*.o
+*.d
+*.crf
+*.lnp
+*.axf
+*.elf
+*.hex
+*.bin
+*.sct
+JLinkLog.txt
+
+# Keil output folders（非常关键）
+MDK-ARM/Debug/
+MDK-ARM/Release/
+MDK-ARM/Objects/
+MDK-ARM/Listings/
+MDK-ARM/342project/
+
+############################
+# STM32CubeIDE
+############################
+.settings/
+.project
+.cproject
+
+############################
+# CubeMX generated temp
+############################
+*.launch
+*.ioc_backup
+*.swp
+
+############################
+# Logs / temp
+############################
+*.tmp
+*.log
+*.htm
+
+############################
+# Python / scripts (if used)
+############################
+__pycache__/
+*.pyc
+
+############################
+# Others
+############################
+*.cache
+*.out
+*.stackdump
