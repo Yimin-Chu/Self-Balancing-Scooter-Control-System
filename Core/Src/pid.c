@@ -332,5 +332,9 @@ void Control(void)
     MOTO2 = PWM_out + Turn_out;
 
     Limit(&MOTO1, &MOTO2);
-    Load(MOTO1, MOTO2);
+
+    // 调试阶段：标定完成后暂不驱动电机，只观察传感器(gyrox / roll)。
+    // MOTO1/MOTO2 仍照常计算，方便日后恢复，但输出强制为 0。
+    // 恢复驱动时改回: Load(MOTO1, MOTO2);
+    Load(0, 0);
 }

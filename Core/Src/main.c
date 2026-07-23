@@ -187,18 +187,11 @@ int main(void)
     if (HAL_GetTick() - oled_tick >= 100)
     {
       oled_tick = HAL_GetTick();
-      sprintf((char *)display_buf, "R:%.1f   ", roll);
+      // 调试阶段：电机不驱动，OLED 持续显示 gyrox 与 roll。
+      sprintf((char *)display_buf, "gyrox:%d    ", gyrox);
       OLED_ShowString(0, 0, display_buf, 12);
-      sprintf((char *)display_buf, "Gx:%d  ", gyrox);
-      OLED_ShowString(0, 1, display_buf, 12);
-      sprintf((char *)display_buf, "Gy:%d  ", gyroy);
+      sprintf((char *)display_buf, "roll:%.2f    ", roll);
       OLED_ShowString(0, 2, display_buf, 12);
-      sprintf((char *)display_buf, "Gz:%d  ", gyroz);
-      OLED_ShowString(0, 3, display_buf, 12);
-      sprintf((char *)display_buf, "L:%d  ", Encoder_Left);
-      OLED_ShowString(0, 4, display_buf, 12);
-      sprintf((char *)display_buf, "R:%d  ", Encoder_Right);
-      OLED_ShowString(0, 5, display_buf, 12);
     }
     /* USER CODE END WHILE */
 
