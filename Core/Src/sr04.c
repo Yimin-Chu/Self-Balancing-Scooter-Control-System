@@ -7,7 +7,7 @@ extern TIM_HandleTypeDef htim3;
 void RCCdelay_us(uint32_t udelay)
 {
   __IO uint32_t Delay = udelay * 72 / 8;//(SystemCoreClock / 8U / 1000000U)
-    //��stm32f1xx_hal_rcc.c -- static void RCC_Delay(uint32_t mdelay)
+    //¼ûstm32f1xx_hal_rcc.c -- static void RCC_Delay(uint32_t mdelay)
   do
   {
     __NOP();
@@ -39,5 +39,5 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 		}
 	}
 	if(GPIO_Pin==GPIO_PIN_5)
-		Control();
+		Imu_DataReady_FromISR();   // P0: 只置标志，Control() 移到主循环(线程态)执行
 }

@@ -127,6 +127,10 @@ void Calibrate_Med_Angle(void)
     int   stable_windows  = 0;
     int   total_windows   = 0;
 
+    // P1: 关闭 DMP 数据通路，避免这 ~20s 原始陀螺settling期间 DMP FIFO 持续填充并溢出。
+    //     Step 1 只读原始寄存器(MPU_Get_Gyroscope)，不需要 DMP；FIFO 从源头不产生溢出。
+    mpu_set_dmp_state(0);
+
     // Step 1: wait for raw gyrox to settle.
     while (stable_windows < REQUIRED_STABLE && total_windows < MAX_WINDOWS)
     {
@@ -153,6 +157,11 @@ void Calibrate_Med_Angle(void)
         window_avg_prev = window_avg_curr;
         total_windows++;
     }
+
+    // P1: Step 2 需要 DMP 输出的 roll 来求 Med_Angle，重新使能 DMP
+    //     (mpu_set_dmp_state(1) 内部会复位 FIFO)，并给几帧时间产出有效数据。
+    mpu_set_dmp_state(1);
+    HAL_Delay(50);
 
     // Step 2: raw gyrox is now stable. DMP roll has been stable for many
     // seconds at this point, so we can sample both directly without an
@@ -214,8 +223,38 @@ int Turn(float gyro_Z, int Target_turn)
     return (int)(Turn_Kp * Target_turn + Turn_Kd * gyro_Z);
 }
 
+// ===========================================================================
+// IMU data-ready signaling (P0) — 见 pid.h 的 RTOS 迁移说明。
 // ---------------------------------------------------------------------------
-// Main control loop — called every 10 ms from MPU6050 INT interrupt
+// EXTI9_5(MPU INT) 回调不再直接跑 Control()，而是调用下面的 FromISR 置标志。
+// 主循环轮询 Imu_ControlPending() 消费，从而把 Control()(含 I2C 阻塞读、可能的
+// mpu_reset_fifo->HAL_Delay) 全部搬到线程态执行，彻底消除“中断里等 SysTick”死锁。
+// ===========================================================================
+volatile uint8_t  imu_data_ready      = 0;
+volatile uint32_t imu_last_ready_tick = 0;
+
+// 由 EXTI9_5 回调调用：只记录“有新 DMP 帧 + 何时到”。禁止在这里做 I2C / delay。
+void Imu_DataReady_FromISR(void)
+{
+    imu_data_ready      = 1;
+    imu_last_ready_tick = HAL_GetTick();
+    // RTOS: xSemaphoreGiveFromISR(imuDataSem, &xHigherPriorityTaskWoken);
+}
+
+// 由主循环轮询：有新帧则返回1并清标志。RTOS 下改为阻塞式信号量 take。
+uint8_t Imu_ControlPending(void)
+{
+    if (imu_data_ready)
+    {
+        imu_data_ready = 0;
+        return 1;
+    }
+    return 0;
+    // RTOS: return (xSemaphoreTake(imuDataSem, portMAX_DELAY) == pdTRUE);
+}
+
+// ---------------------------------------------------------------------------
+// Main control loop — 由主循环在收到 MPU 数据就绪信号后调用(约每 10 ms 一次)
 // ---------------------------------------------------------------------------
 void Control(void)
 {

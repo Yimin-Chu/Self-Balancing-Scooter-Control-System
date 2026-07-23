@@ -156,21 +156,15 @@ int main(void)
   // 4. Arm UART receive for remote command bytes.
   HAL_UART_Receive_IT(&huart3, rx_buf, 1);
 
-  // 5. Clear the DMP FIFO *in thread context*, immediately before arming the INT.
+  // 5. Arm the MPU data-ready interrupt.
   //
-  //    Why this is mandatory: Calibrate_Med_Angle() above reads the RAW gyro
-  //    registers for ~20 s and never drains the DMP FIFO, so the FIFO has
-  //    overflowed by now. If we leave it overflowed, the very first Control()
-  //    -- which runs inside the EXTI9_5 ISR at preempt priority 0 -- would go
-  //    mpu_dmp_get_data -> dmp_read_fifo -> mpu_read_fifo_stream, hit the
-  //    overflow bit, and call mpu_reset_fifo(), which contains delay_ms(50)
-  //    == HAL_Delay(50). HAL_Delay waits on HAL_GetTick(), and the tick only
-  //    advances in the SysTick ISR -- which cannot preempt a priority-0 ISR.
-  //    The tick never moves, HAL_Delay never returns, and the CPU is wedged in
-  //    the interrupt forever: OLED frozen black, motors never updated.
+  //    P0: EXTI9_5 回调不再直接跑 Control()，只调用 Imu_DataReady_FromISR() 置标志；
+  //        真正的 Control() 在下面的主循环(线程态)执行。因此 DMP 驱动内部即便触发
+  //        HAL_Delay(如 mpu_reset_fifo)，SysTick 也能正常递增，不会再死锁。
+  //    P1: Calibrate_Med_Angle() 内部已在 ~20s 原始陀螺settling期间关闭 DMP，
+  //        标定期不再填充/溢出 FIFO；这里再复位一次 FIFO 作兜底，保证开中断后第一帧干净。
   //
-  //    Doing the reset here (thread mode) makes that HAL_Delay harmless, and
-  //    the first ISR read then sees a clean FIFO.
+  //    注: EXTI9_5 的 NVIC 优先级(0)保留即可——重活已移出中断，优先级高不再有害。
   mpu_reset_fifo();
   HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
@@ -178,20 +172,34 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  uint32_t oled_tick = HAL_GetTick();
   while (1)
   {
-    sprintf((char *)display_buf, "R:%.1f   ", roll);
-    OLED_ShowString(0, 0, display_buf, 12);
-    sprintf((char *)display_buf, "Gx:%d  ", gyrox);
-    OLED_ShowString(0, 1, display_buf, 12);
-    sprintf((char *)display_buf, "Gy:%d  ", gyroy);
-    OLED_ShowString(0, 2, display_buf, 12);
-    sprintf((char *)display_buf, "Gz:%d  ", gyroz);
-    OLED_ShowString(0, 3, display_buf, 12);
-    sprintf((char *)display_buf, "L:%d  ", Encoder_Left);
-    OLED_ShowString(0, 4, display_buf, 12);
-    sprintf((char *)display_buf, "R:%d  ", Encoder_Right);
-    OLED_ShowString(0, 5, display_buf, 12);
+    /* P0: 事件驱动控制。每当 MPU 产生一帧 DMP 数据(EXTI 置标志)，主循环消费并执行
+     *     Control()。现在运行在线程态，DMP 驱动内部即使 HAL_Delay 也不会死锁。
+     *     RTOS 迁移: 把 Imu_ControlPending() 换成阻塞式信号量 take，此处结构不变。 */
+    if (Imu_ControlPending())
+    {
+      Control();
+    }
+
+    /* 显示节流(~10Hz)。OLED 刷新慢，不能每圈都刷，否则会挤占 10ms 控制时序。 */
+    if (HAL_GetTick() - oled_tick >= 100)
+    {
+      oled_tick = HAL_GetTick();
+      sprintf((char *)display_buf, "R:%.1f   ", roll);
+      OLED_ShowString(0, 0, display_buf, 12);
+      sprintf((char *)display_buf, "Gx:%d  ", gyrox);
+      OLED_ShowString(0, 1, display_buf, 12);
+      sprintf((char *)display_buf, "Gy:%d  ", gyroy);
+      OLED_ShowString(0, 2, display_buf, 12);
+      sprintf((char *)display_buf, "Gz:%d  ", gyroz);
+      OLED_ShowString(0, 3, display_buf, 12);
+      sprintf((char *)display_buf, "L:%d  ", Encoder_Left);
+      OLED_ShowString(0, 4, display_buf, 12);
+      sprintf((char *)display_buf, "R:%d  ", Encoder_Right);
+      OLED_ShowString(0, 5, display_buf, 12);
+    }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */

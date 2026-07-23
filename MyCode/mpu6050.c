@@ -10,8 +10,8 @@ uint8_t MPU_Init(void)
     MPU_Write_Byte(MPU_PWR_MGMT1_REG, 0X80);   // reset MPU6050
     delay_ms(100);
     MPU_Write_Byte(MPU_PWR_MGMT1_REG, 0X00);   // wake up
-    MPU_Set_Gyro_Fsr(3);                        // gyro: กภ2000 dps
-    MPU_Set_Accel_Fsr(0);                       // accel: กภ2 g
+    MPU_Set_Gyro_Fsr(3);                        // gyro: ยกร€2000 dps
+    MPU_Set_Accel_Fsr(0);                       // accel: ยกร€2 g
     MPU_Set_Rate(100);                          // sample rate: 100 Hz
     MPU_Write_Byte(MPU_INT_EN_REG,   0X00);     // disable all interrupts
     MPU_Write_Byte(MPU_USER_CTRL_REG,0X00);     // disable I2C master mode
@@ -28,7 +28,7 @@ uint8_t MPU_Init(void)
 }
 
 // Set gyro full-scale range.
-// fsr: 0=กภ250 dps, 1=กภ500 dps, 2=กภ1000 dps, 3=กภ2000 dps
+// fsr: 0=ยกร€250 dps, 1=ยกร€500 dps, 2=ยกร€1000 dps, 3=ยกร€2000 dps
 // Returns 0 on success.
 uint8_t MPU_Set_Gyro_Fsr(uint8_t fsr)
 {
@@ -36,7 +36,7 @@ uint8_t MPU_Set_Gyro_Fsr(uint8_t fsr)
 }
 
 // Set accelerometer full-scale range.
-// fsr: 0=กภ2g, 1=กภ4g, 2=กภ8g, 3=กภ16g
+// fsr: 0=ยกร€2g, 1=ยกร€4g, 2=ยกร€8g, 3=ยกร€16g
 // Returns 0 on success.
 uint8_t MPU_Set_Accel_Fsr(uint8_t fsr)
 {
@@ -44,7 +44,7 @@ uint8_t MPU_Set_Accel_Fsr(uint8_t fsr)
 }
 
 // Set digital low-pass filter cutoff frequency (Hz).
-// Maps lpf value to DLPF_CFG register field (1จC6).
+// Maps lpf value to DLPF_CFG register field (1ยจC6).
 // Returns 0 on success.
 uint8_t MPU_Set_LPF(uint16_t lpf)
 {
@@ -58,7 +58,7 @@ uint8_t MPU_Set_LPF(uint16_t lpf)
     return MPU_Write_Byte(MPU_CFG_REG, data);
 }
 
-// Set sample rate (4จC1000 Hz). Base clock is 1 kHz.
+// Set sample rate (4ยจC1000 Hz). Base clock is 1 kHz.
 // Also sets LPF cutoff to rate/2 automatically.
 // Returns 0 on success.
 uint8_t MPU_Set_Rate(uint16_t rate)
@@ -71,7 +71,7 @@ uint8_t MPU_Set_Rate(uint16_t rate)
     return MPU_Set_LPF(rate / 2);               // LPF = Nyquist of sample rate
 }
 
-// Read on-chip temperature. Returns value scaled กม100 (กใC).
+// Read on-chip temperature. Returns value scaled ยกร100 (ยกรฃC).
 // Formula: T = 36.53 + raw/340
 short MPU_Get_Temperature(void)
 {
