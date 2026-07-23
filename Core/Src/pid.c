@@ -5,6 +5,7 @@
 #include "mpu6050.h"
 #include "motor.h"
 #include "math.h"
+#include <stdlib.h>   // for abs()
 
 // Sensor readings
 int Encoder_Left, Encoder_Right;
@@ -35,42 +36,129 @@ extern uint8_t Fore, Back, Left, Right;
 #define SPEED_Y  30
 #define SPEED_Z  150
 
+// ===========================================================================
+// Runtime gyrox zero-bias tracking (slow IIR)
 // ---------------------------------------------------------------------------
-// Auto-calibrate Med_Angle and gyrox zero-bias on startup.
+// Absorbs slow temperature-induced bias drift during long sessions.
+// Silicon die temperature rises 3-5°C over 5-10 min of operation, which
+// shifts the gyro zero-bias by ~5-25 LSB. The startup calibration captures
+// the cold-state bias accurately (see Calibrate_Med_Angle below), but it
+// cannot predict warm-state drift. This IIR tracker handles that.
 //
-// Step 1 — Wait for DMP to converge:
-//   Reads roll every 10 ms. Requires 20 consecutive readings with change
-//   < 0.1 deg before proceeding. Prevents reading a drifting value.
+// Operating principle: when the vehicle is detected static (wheels still,
+// no remote command), run a very slow IIR on raw gyrox to follow the
+// drifting bias. Anomalous samples (shake/bump) are discarded.
+// ===========================================================================
+#define STATIC_ENC_THRESH      2       // |encoder count| under which wheel is "still"
+#define STATIC_GYRO_REJECT     400     // |raw - offset| LSB beyond this => discard
+#define STATIC_DEBOUNCE_CNT    50      // 50 × 10ms = 500ms of stillness before updating
+#define BIAS_TRACK_ALPHA       0.003f  // IIR coefficient; smaller = slower tracking
+
+static int   static_count   = 0;
+static float gyrox_offset_f = 0.0f;    // float-precision offset for slow IIR
+static int   fail_continus  = 0;       // consecutive anomalous-sample counter
+
+static void Update_Gyrox_Bias(short raw_gyrox)
+{
+    int     dev          = abs((int)raw_gyrox - (int)gyrox_offset_f);
+    uint8_t wheels_still = (abs(Encoder_Left)  <= STATIC_ENC_THRESH) &&
+                           (abs(Encoder_Right) <= STATIC_ENC_THRESH);
+    uint8_t no_command   = (Target_Speed == 0) && (Target_turn == 0);
+    uint8_t gyro_calm    = (dev < STATIC_GYRO_REJECT);
+
+    // Anomalous sample while otherwise static (shake/bump) — discard.
+    // 5 consecutive anomalies reset debounce so we don't pollute the bias.
+    if (wheels_still && no_command && !gyro_calm)
+    {
+        if (++fail_continus >= 5) { static_count = 0; fail_continus = 0; }
+        return;
+    }
+    fail_continus = 0;
+
+    if (wheels_still && no_command && gyro_calm)
+    {
+        if (static_count < STATIC_DEBOUNCE_CNT)
+        {
+            static_count++;
+        }
+        else
+        {
+            gyrox_offset_f = (1.0f - BIAS_TRACK_ALPHA) * gyrox_offset_f
+                           +        BIAS_TRACK_ALPHA  * (float)raw_gyrox;
+            gyrox_offset   = (int)gyrox_offset_f;
+        }
+    }
+    else
+    {
+        static_count = 0;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Calibrate Med_Angle and gyrox zero-bias at startup — root-cure version.
 //
-// Step 2 — Average 200 samples (~1 s):
-//   Computes Med_Angle (roll mean) and gyrox_offset (gyro zero-bias).
-//   gyrox_offset is subtracted in Control() so static gyrox ≈ 0.
+// Background: the MPU6050 raw gyro register takes ~15-20 s to settle after
+// power-on (PLL lock, MEMS resonator startup, DLPF transient flushing,
+// analog reference settling, self-heating). The accelerometer settles
+// almost instantly because gravity gives it a permanent DC reference;
+// the gyro has no such anchor and must reach its true bias on its own.
 //
-// Place the car upright and still before calling. Takes up to ~5 s total.
+// Previous version of this routine waited for DMP roll stability, which
+// converges in < 1 s (acc bails it out via the complementary filter).
+// That left the actual quantity we wanted to calibrate (raw gyrox) still
+// drifting, and the captured offset was ~70 LSB off.
+//
+// New approach: monitor raw gyrox directly. Compute 1-second window
+// averages and wait for THREE consecutive windows to agree within 2 LSB.
+// This guarantees the bias has actually stabilized before we sample it.
+//
+// Expected total time: ~18-22 s after power-on. Place the car upright
+// and still before calling. After this returns, gyrox - gyrox_offset ≈ 0
+// immediately, no further convergence wait needed before enabling motors.
 // ---------------------------------------------------------------------------
 void Calibrate_Med_Angle(void)
 {
-    float sum_roll  = 0.0f;
-    long  sum_gyrox = 0;
-    float last_roll = 0.0f, cur_roll = 0.0f;
-    int   stable_count = 0;
+    const int   WINDOW_SAMPLES  = 100;   // 100 × 10ms = 1 s per window
+    const float CONVERGE_THRESH = 2.0f;  // adjacent windows must agree within 2 LSB
+    const int   REQUIRED_STABLE = 3;     // need 3 consecutive agreeing windows
+    const int   MAX_WINDOWS     = 60;    // safety cap: 60 s max
 
-    // Step 1: wait until roll is stable (DMP converged)
-    while (stable_count < 20)
+    float window_avg_prev = 0.0f, window_avg_curr = 0.0f;
+    int   stable_windows  = 0;
+    int   total_windows   = 0;
+
+    // Step 1: wait for raw gyrox to settle.
+    while (stable_windows < REQUIRED_STABLE && total_windows < MAX_WINDOWS)
     {
-        mpu_dmp_get_data(&pitch, &roll, &yaw);
-        cur_roll = roll;
+        long sum = 0;
+        for (int i = 0; i < WINDOW_SAMPLES; i++)
+        {
+            MPU_Get_Gyroscope(&gyrox, &gyroy, &gyroz);
+            sum += gyrox;
+            HAL_Delay(10);
+        }
+        window_avg_curr = sum / (float)WINDOW_SAMPLES;
 
-        if (fabsf(cur_roll - last_roll) < 0.1f)
-            stable_count++;
+        // Skip the very first window (nothing to compare against).
+        if (total_windows > 0 &&
+            fabsf(window_avg_curr - window_avg_prev) < CONVERGE_THRESH)
+        {
+            stable_windows++;
+        }
         else
-            stable_count = 0;   // still drifting, reset counter
+        {
+            stable_windows = 0;
+        }
 
-        last_roll = cur_roll;
-        HAL_Delay(10);
+        window_avg_prev = window_avg_curr;
+        total_windows++;
     }
 
-    // Step 2: stable — average 200 samples for Med_Angle and gyrox offset
+    // Step 2: raw gyrox is now stable. DMP roll has been stable for many
+    // seconds at this point, so we can sample both directly without an
+    // additional roll-stability check. Average 200 samples (~1 s).
+    float sum_roll  = 0.0f;
+    long  sum_gyrox = 0;
     for (int i = 0; i < 200; i++)
     {
         mpu_dmp_get_data(&pitch, &roll, &yaw);
@@ -80,8 +168,9 @@ void Calibrate_Med_Angle(void)
         HAL_Delay(5);
     }
 
-    Med_Angle    = sum_roll  / 200.0f;
-    gyrox_offset = (int)(sum_gyrox / 200);
+    Med_Angle      = sum_roll  / 200.0f;
+    gyrox_offset   = (int)(sum_gyrox / 200);
+    gyrox_offset_f = (float)gyrox_offset;   // seed runtime IIR tracker
 }
 
 // ---------------------------------------------------------------------------
@@ -103,18 +192,14 @@ int Velocity(int Target, int encoder_L, int encoder_R)
 
     Err = (encoder_L + encoder_R) - Target;
 
-    // Low-pass filter
     Err_LowOut = (int)((1.0f - a) * Err + a * Err_LowOut_last);
     Err_LowOut_last = Err_LowOut;
 
-    // Integrate
     Encoder_S += Err_LowOut;
 
-    // Anti-windup clamp
     if (Encoder_S >  3000) Encoder_S =  3000;
     if (Encoder_S < -3000) Encoder_S = -3000;
 
-    // Clear integral — fires once per stop event (edge-triggered in Control)
     if (stop == 1) { Encoder_S = 0; stop = 0; }
 
     temp = (int)(Velocity_Kp * Err_LowOut + Velocity_Ki * Encoder_S);
@@ -134,8 +219,9 @@ int Turn(float gyro_Z, int Target_turn)
 // ---------------------------------------------------------------------------
 void Control(void)
 {
-    int PWM_out;
+    int   PWM_out;
     uint8_t bt_timeout, neutral;
+    short raw_gyrox_saved;          // save raw gyrox BEFORE offset correction
 
     // 1. Read sensors
     Encoder_Left  =  Read_Speed(&htim2);
@@ -144,9 +230,11 @@ void Control(void)
     MPU_Get_Gyroscope(&gyrox, &gyroy, &gyroz);
     MPU_Get_Accelerometer(&aacx, &aacy, &aacz);
 
-    // Apply gyrox zero-bias correction (calibrated at startup)
-    // Removes the ~55 LSB static offset so Kd term doesn't produce
-    // a constant disturbing force when the car is stationary.
+    // 1a. Update runtime gyrox bias tracker (absorbs slow temperature drift).
+    raw_gyrox_saved = gyrox;
+    Update_Gyrox_Bias(raw_gyrox_saved);
+
+    // Apply gyrox zero-bias correction.
     gyrox -= gyrox_offset;
 
     // 2. Remote command handling
@@ -156,7 +244,6 @@ void Control(void)
     {
         Target_Speed = 0;
         Target_turn  = 0;
-        // Trigger stop only on the FIRST loop after timeout (rising edge)
         if (!prev_bt_timeout) { stop = 1; }
     }
     else
@@ -166,7 +253,6 @@ void Control(void)
         if (neutral)
         {
             Target_Speed = 0;
-            // Trigger stop only when buttons are freshly released (rising edge)
             if (!prev_neutral) { stop = 1; }
         }
         else

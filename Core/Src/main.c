@@ -34,6 +34,7 @@
 #include "sr04.h"
 #include "motor.h"
 #include "encoder.h"
+#include "pid.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -55,9 +56,9 @@
 /* USER CODE BEGIN PV */
 extern float roll;
 extern short gyrox, gyroy, gyroz;
-extern float Med_Angle;
-extern int Encoder_Left,Encoder_Right;
-uint8_t display_buf[20];
+extern int Encoder_Left, Encoder_Right;
+extern int gyrox_offset;
+uint8_t display_buf[24];
 uint32_t sys_tick;
 extern float distance;
 extern uint8_t rx_buf[2];
@@ -67,6 +68,8 @@ extern uint8_t rx_buf[2];
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 void Read(void);
+/* If pid.h doesn't declare it, uncomment this:
+   extern void Calibrate_Med_Angle(void);                                    */
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -109,39 +112,86 @@ int main(void)
   MX_TIM4_Init();
   MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
-	OLED_Init();
-	OLED_Clear();
-	MPU_Init();
-	mpu_dmp_init();
-	OLED_ShowString(0,00,"Init Sucess",16);
-	HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
+  OLED_Init();
+  OLED_Clear();
+  MPU_Init();
+  mpu_dmp_init();
+  OLED_ShowString(0, 0, "Init Sucess", 16);
+
+  // -----------------------------------------------------------------------
+  // STARTUP ORDER (critical!)
+  //
+  // The MPU INT (EXTI9_5) is what triggers Control(). Once enabled, Control()
+  // starts firing every 10 ms and writes PWM to the motors via Load(). So
+  // EVERYTHING that Control() depends on must be ready BEFORE we enable INT:
+  //   - gyrox_offset must reflect the true settled bias  (Calibrate_Med_Angle)
+  //   - encoders must be running                          (HAL_TIM_Encoder_Start)
+  //   - motor PWM channels must be initialised to 0      (HAL_TIM_PWM_Start + Load(0,0))
+  //   - UART RX must be armed                            (HAL_UART_Receive_IT)
+  //
+  // EXTI is enabled LAST.
+  // -----------------------------------------------------------------------
+
+  // 1. Calibrate raw gyrox bias. BLOCKS for ~18-22 s while the chip's gyro
+  //    register settles after power-on. Keep the car upright and still.
+  OLED_ShowString(0, 2, "Calibrating...", 16);
+  OLED_ShowString(0, 4, "Hold still ~20s", 12);
+  Calibrate_Med_Angle();
+  OLED_Clear();
+  OLED_ShowString(0, 0, "Ready", 16);
+  sprintf((char *)display_buf, "gyrox_off:%d", gyrox_offset);
+  OLED_ShowString(0, 2, display_buf, 12);
+  HAL_Delay(1000);   // let user briefly see the calibrated offset
+  OLED_Clear();
+
+  // 2. Start encoders so Control() reads valid wheel counts immediately.
+  HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
+  HAL_TIM_Encoder_Start(&htim4, TIM_CHANNEL_ALL);
+
+  // 3. Start motor PWM channels, then force duty cycle to 0 (belt + suspenders).
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
+  Load(0, 0);
+
+  // 4. Arm UART receive for remote command bytes.
+  HAL_UART_Receive_IT(&huart3, rx_buf, 1);
+
+  // 5. Clear the DMP FIFO *in thread context*, immediately before arming the INT.
+  //
+  //    Why this is mandatory: Calibrate_Med_Angle() above reads the RAW gyro
+  //    registers for ~20 s and never drains the DMP FIFO, so the FIFO has
+  //    overflowed by now. If we leave it overflowed, the very first Control()
+  //    -- which runs inside the EXTI9_5 ISR at preempt priority 0 -- would go
+  //    mpu_dmp_get_data -> dmp_read_fifo -> mpu_read_fifo_stream, hit the
+  //    overflow bit, and call mpu_reset_fifo(), which contains delay_ms(50)
+  //    == HAL_Delay(50). HAL_Delay waits on HAL_GetTick(), and the tick only
+  //    advances in the SysTick ISR -- which cannot preempt a priority-0 ISR.
+  //    The tick never moves, HAL_Delay never returns, and the CPU is wedged in
+  //    the interrupt forever: OLED frozen black, motors never updated.
+  //
+  //    Doing the reset here (thread mode) makes that HAL_Delay harmless, and
+  //    the first ISR read then sees a clean FIFO.
+  mpu_reset_fifo();
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
-
-
-	HAL_TIM_PWM_Start(&htim1,TIM_CHANNEL_1);
-	HAL_TIM_PWM_Start(&htim1,TIM_CHANNEL_4);
-	HAL_TIM_Encoder_Start(&htim2,TIM_CHANNEL_ALL);
-	HAL_TIM_Encoder_Start(&htim4,TIM_CHANNEL_ALL);
-	HAL_UART_Receive_IT(&huart3,rx_buf,1);
-	Load(0,0);
-	OLED_Clear();
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-		sprintf((char *)display_buf,"Encoder_L:%d   ",Encoder_Left);
-		OLED_ShowString(0,0,display_buf,16);
-		sprintf((char *)display_buf,"Encoder_R:%d   ",Encoder_Right);
-		OLED_ShowString(0,2,display_buf,16);
-		sprintf((char *)display_buf,"Roll:%.1f    ",roll);
-		OLED_ShowString(0,4,display_buf,12);
-    sprintf((char *)display_buf,"Med:%.2f    ",Med_Angle);
-		OLED_ShowString(0,6,display_buf,12);
-		/*GET_Distance();
-		sprintf((char *)display_buf,"distance:%.1f  ",distance);
-		OLED_ShowString(0,6,display_buf,12);
+    sprintf((char *)display_buf, "R:%.1f   ", roll);
+    OLED_ShowString(0, 0, display_buf, 12);
+    sprintf((char *)display_buf, "Gx:%d  ", gyrox);
+    OLED_ShowString(0, 1, display_buf, 12);
+    sprintf((char *)display_buf, "Gy:%d  ", gyroy);
+    OLED_ShowString(0, 2, display_buf, 12);
+    sprintf((char *)display_buf, "Gz:%d  ", gyroz);
+    OLED_ShowString(0, 3, display_buf, 12);
+    sprintf((char *)display_buf, "L:%d  ", Encoder_Left);
+    OLED_ShowString(0, 4, display_buf, 12);
+    sprintf((char *)display_buf, "R:%d  ", Encoder_Right);
+    OLED_ShowString(0, 5, display_buf, 12);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
