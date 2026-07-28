@@ -339,7 +339,7 @@
               <MiscControls></MiscControls>
               <Define>USE_HAL_DRIVER,STM32F103xB</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../Drivers/STM32F1xx_HAL_Driver/Inc;../Drivers/STM32F1xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F1xx/Include;../Drivers/CMSIS/Include;../MyCode</IncludePath>
+              <IncludePath>../Core/Inc;../Drivers/STM32F1xx_HAL_Driver/Inc;../Drivers/STM32F1xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F1xx/Include;../Drivers/CMSIS/Include;../MyCode;../Comm</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -574,6 +574,41 @@
               <FileName>stm32f1xx_hal_msp.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Core/Src/stm32f1xx_hal_msp.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Application/User/Comm</GroupName>
+          <Files>
+            <File>
+              <FileName>comm.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Comm/comm.c</FilePath>
+            </File>
+            <File>
+              <FileName>comm_pack.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Comm/comm_pack.c</FilePath>
+            </File>
+            <File>
+              <FileName>comm_port.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Comm/comm_port.c</FilePath>
+            </File>
+            <File>
+              <FileName>comm_receive.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Comm/comm_receive.c</FilePath>
+            </File>
+            <File>
+              <FileName>comm_send.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Comm/comm_send.c</FilePath>
+            </File>
+            <File>
+              <FileName>crc16.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Comm/crc16.c</FilePath>
             </File>
           </Files>
         </Group>

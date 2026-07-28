@@ -10,6 +10,9 @@ extern volatile uint32_t last_bt_cmd_tick;
 
 void Control(void);
 
+/* 开机静置标定平衡中值角(在 main 初始化阶段调用，实现见 pid.c) */
+void Calibrate_Med_Angle(void);
+
 /* ---------------------------------------------------------------------------
  * IMU 数据就绪信号 (P0: 把 Control() 移出中断上下文)
  *

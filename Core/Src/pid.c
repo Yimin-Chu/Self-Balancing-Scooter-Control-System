@@ -29,6 +29,10 @@ uint8_t stop;
 static uint8_t prev_bt_timeout = 0;
 static uint8_t prev_neutral    = 0;
 
+// 电机输出总闸。0 时 MOTO1/MOTO2 照常计算但 PWM 恒为 0，方便只观察传感器调试。
+// 默认 0，与之前硬写 Load(0,0) 的行为一致；由蓝牙命令 REV_CMD_MOTOR_EN 打开。
+uint8_t motor_enable = 0;
+
 extern TIM_HandleTypeDef htim2, htim4;
 extern float distance;
 extern uint8_t Fore, Back, Left, Right;
@@ -333,8 +337,14 @@ void Control(void)
 
     Limit(&MOTO1, &MOTO2);
 
-    // 调试阶段：标定完成后暂不驱动电机，只观察传感器(gyrox / roll)。
-    // MOTO1/MOTO2 仍照常计算，方便日后恢复，但输出强制为 0。
-    // 恢复驱动时改回: Load(MOTO1, MOTO2);
-    Load(0, 0);
+    // 电机输出受 motor_enable 控制：开机默认为 0(只观察 gyrox / roll)，
+    // 蓝牙下发 REV_CMD_MOTOR_EN(0x02) 才真正驱动电机。
+    if (motor_enable)
+    {
+        Load(MOTO1, MOTO2);
+    }
+    else
+    {
+        Load(0, 0);
+    }
 }

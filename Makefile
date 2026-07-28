@@ -29,6 +29,12 @@ MyCode/mpu6050.c \
 MyCode/IIC.c \
 MyCode/inv_mpu.c \
 MyCode/inv_mpu_dmp_motion_driver.c \
+Comm/comm.c \
+Comm/comm_pack.c \
+Comm/comm_port.c \
+Comm/comm_receive.c \
+Comm/comm_send.c \
+Comm/crc16.c \
 $(filter-out %_template.c,$(wildcard Drivers/STM32F1xx_HAL_Driver/Src/*.c))
 
 # 汇编启动文件 (GCC 版)
@@ -54,6 +60,7 @@ C_DEFS = -DUSE_HAL_DRIVER -DSTM32F103xB
 C_INCLUDES = \
 -ICore/Inc \
 -IMyCode \
+-IComm \
 -IDrivers/STM32F1xx_HAL_Driver/Inc \
 -IDrivers/STM32F1xx_HAL_Driver/Inc/Legacy \
 -IDrivers/CMSIS/Device/ST/STM32F1xx/Include \

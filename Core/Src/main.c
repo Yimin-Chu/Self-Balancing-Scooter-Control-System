@@ -35,6 +35,7 @@
 #include "motor.h"
 #include "encoder.h"
 #include "pid.h"
+#include "comm.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -61,7 +62,6 @@ extern int gyrox_offset;
 uint8_t display_buf[24];
 uint32_t sys_tick;
 extern float distance;
-extern uint8_t rx_buf[2];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -153,8 +153,9 @@ int main(void)
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
   Load(0, 0);
 
-  // 4. Arm UART receive for remote command bytes.
-  HAL_UART_Receive_IT(&huart3, rx_buf, 1);
+  // 4. 初始化通信层(USART3 蓝牙)：武装接收中断 + 启动周期上报。
+  //    帧格式参考追觅协议，见 Comm/comm_protocol_readme.md。
+  Comm_Init();
 
   // 5. Arm the MPU data-ready interrupt.
   //
@@ -182,6 +183,9 @@ int main(void)
     {
       Control();
     }
+
+    /* 蓝牙通信轮询：解析收到的协议帧、按周期上报状态。中断只搬字节，解析在这里做。 */
+    Comm_Poll();
 
     /* 显示节流(~10Hz)。OLED 刷新慢，不能每圈都刷，否则会挤占 10ms 控制时序。 */
     if (HAL_GetTick() - oled_tick >= 100)

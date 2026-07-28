@@ -41,10 +41,10 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
-uint8_t rx_buf[2],Bluetooth_data;
-uint8_t Fore,Back,Left,Right;
-extern uint8_t stop;
-volatile uint32_t last_bt_cmd_tick = 0;
+/* 蓝牙指令解析已搬到 Comm/ 通信层：
+ * 中断里只调 HAL_UART_IRQHandler，字节由 comm_port.c 的 HAL 回调收进环形缓冲，
+ * 协议解析在主循环的 Comm_Poll() 里做。
+ * Fore/Back/Left/Right、last_bt_cmd_tick 现在定义在 Comm/comm_receive.c。 */
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -239,16 +239,7 @@ void USART3_IRQHandler(void)
   /* USER CODE END USART3_IRQn 0 */
   HAL_UART_IRQHandler(&huart3);
   /* USER CODE BEGIN USART3_IRQn 1 */
-	Bluetooth_data=rx_buf[0];
-	last_bt_cmd_tick = HAL_GetTick();
-	if(Bluetooth_data==0x00)		 Fore=0,Back=0,Left=0,Right=0;//?
-	else if(Bluetooth_data==0x01)Fore=1,Back=0,Left=0,Right=0;//?
-	else if(Bluetooth_data==0x05)Fore=0,Back=1,Left=0,Right=0;//??
-	else if(Bluetooth_data==0x03)Fore=0,Back=0,Left=0,Right=1;//??
-	else if(Bluetooth_data==0x07)Fore=0,Back=0,Left=1,Right=0;//??
-	else if(Bluetooth_data==0x09){ stop=1; Fore=0; Back=0; Left=0; Right=0; }  // 09: 停止电机
-	else												 Fore=0,Back=0,Left=0,Right=0;//?
-	HAL_UART_Receive_IT(&huart3,rx_buf,1);
+  /* 收发处理见 Comm/comm_port.c 的 HAL_UART_RxCpltCallback / TxCpltCallback / ErrorCallback */
   /* USER CODE END USART3_IRQn 1 */
 }
 
