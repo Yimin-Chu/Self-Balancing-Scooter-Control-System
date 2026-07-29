@@ -36,6 +36,8 @@
 #include "encoder.h"
 #include "pid.h"
 #include "comm.h"
+#include "comm_echo.h"
+#include "cali_store.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -59,7 +61,7 @@ extern float roll;
 extern short gyrox, gyroy, gyroz;
 extern int Encoder_Left, Encoder_Right;
 extern int gyrox_offset;
-uint8_t display_buf[24];
+uint8_t display_buf[32];
 uint32_t sys_tick;
 extern float distance;
 /* USER CODE END PV */
@@ -68,6 +70,7 @@ extern float distance;
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 void Read(void);
+static void Display_Poll(void);
 /* If pid.h doesn't declare it, uncomment this:
    extern void Calibrate_Med_Angle(void);                                    */
 /* USER CODE END PFP */
@@ -132,11 +135,24 @@ int main(void)
   // EXTI is enabled LAST.
   // -----------------------------------------------------------------------
 
-  // 1. Calibrate raw gyrox bias. BLOCKS for ~18-22 s while the chip's gyro
-  //    register settles after power-on. Keep the car upright and still.
-  OLED_ShowString(0, 2, "Calibrating...", 16);
-  OLED_ShowString(0, 4, "Hold still ~20s", 12);
-  Calibrate_Med_Angle();
+  // 1. 取得 gyrox 零偏与平衡中值角。优先用 Flash 里存的上次标定结果，
+  //    省掉每次开机 18-22 s 的静置等待；Flash 里没有(首次上电/数据损坏)才现场标定。
+  //
+  //    代价：陀螺零偏本来就随温度和上电次数漂移，复用旧值不如现场标定准。
+  //    pid.c 的运行时零偏跟踪器(Update_Gyrox_Bias)会慢慢把差值吸收掉，
+  //    但如果发现小车静止时缓慢跑偏，用串口敲 'cali' 重新标定一次即可。
+  if (0 == CaliStore_Load())
+  {
+    Calibrate_Apply(CaliStore_GetMedAngle(), (int)CaliStore_GetGyroxOffset());
+    OLED_ShowString(0, 2, "Cali from flash", 12);
+  }
+  else
+  {
+    OLED_ShowString(0, 2, "Calibrating...", 16);
+    OLED_ShowString(0, 4, "Hold still ~20s", 12);
+    Calibrate_Med_Angle();
+    CaliStore_Save(Med_Angle, (int32_t)gyrox_offset);
+  }
   OLED_Clear();
   OLED_ShowString(0, 0, "Ready", 16);
   sprintf((char *)display_buf, "gyrox_off:%d", gyrox_offset);
@@ -173,7 +189,6 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  uint32_t oled_tick = HAL_GetTick();
   while (1)
   {
     /* P0: 事件驱动控制。每当 MPU 产生一帧 DMP 数据(EXTI 置标志)，主循环消费并执行
@@ -188,15 +203,7 @@ int main(void)
     Comm_Poll();
 
     /* 显示节流(~10Hz)。OLED 刷新慢，不能每圈都刷，否则会挤占 10ms 控制时序。 */
-    if (HAL_GetTick() - oled_tick >= 100)
-    {
-      oled_tick = HAL_GetTick();
-      // 调试阶段：电机不驱动，OLED 持续显示 gyrox 与 roll。
-      sprintf((char *)display_buf, "gyrox:%d    ", gyrox);
-      OLED_ShowString(0, 0, display_buf, 12);
-      sprintf((char *)display_buf, "roll:%.2f    ", roll);
-      OLED_ShowString(0, 2, display_buf, 12);
-    }
+    Display_Poll();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -245,6 +252,57 @@ void SystemClock_Config(void)
 
 /* USER CODE BEGIN 4 */
 
+/**
+  * @brief  OLED 刷新：每 100ms 最多刷一行
+  * @note   一行整页突发写在 100kHz I2C 上约 12ms，已经比 10ms 的控制周期还长，
+  *         所以一个 tick 只刷一行；四行一起刷等于制造 50ms 的失控窗口。
+  *
+  *         命令回显排在传感器行前面：敲下的字符要在 100ms 内出现在屏上才有实时感。
+  *         没人敲命令时两行传感器交替刷新，各约 5Hz，读数够看。
+  *
+  *         版面(每行 16 字符)：
+  *           page0  gyrox:<陀螺原始值>
+  *           page2  roll:<角度>
+  *           page4  ><正在输入的命令>
+  *           page6  <最近一条命令/帧的结果>
+  */
+static void Display_Poll(void)
+{
+  static uint32_t tick       = 0;
+  static uint8_t  sensorLine = 0;
+
+  if ((HAL_GetTick() - tick) < 100U)
+  {
+    return;
+  }
+  tick = HAL_GetTick();
+
+  if (0U != CommEcho_TakeInputDirty())
+  {
+    sprintf((char *)display_buf, ">%s", CommEcho_GetInput());
+    OLED_ShowLine(4, (char *)display_buf);
+    return;
+  }
+
+  if (0U != CommEcho_TakeEventDirty())
+  {
+    OLED_ShowLine(6, CommEcho_GetEvent());
+    return;
+  }
+
+  if (0U == sensorLine)
+  {
+    sprintf((char *)display_buf, "gyrox:%d", gyrox);
+    OLED_ShowLine(0, (char *)display_buf);
+  }
+  else
+  {
+    sprintf((char *)display_buf, "roll:%.2f", roll);
+    OLED_ShowLine(2, (char *)display_buf);
+  }
+
+  sensorLine ^= 1U;
+}
 
 /* USER CODE END 4 */
 

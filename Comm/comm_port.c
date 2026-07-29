@@ -1,6 +1,6 @@
 /**
  * @file    comm_port.c
- * @brief   传输层：USART3(JDY-31 蓝牙) 收发环形缓冲
+ * @brief   传输层：USART3(蓝牙透传) 收发环形缓冲
  *
  * 对应追觅工程里的 task_com.c，只是那边靠 FreeRTOS 队列 + DMA，
  * 本工程是裸机超循环，所以换成"中断填环形缓冲 + 主循环消费"：
@@ -9,17 +9,22 @@
  *   发送: CommPack_Send -> CommPort_TxPushFrame -> txRing -> 中断逐段 HAL_UART_Transmit_IT
  *
  * 为什么发送不能直接用阻塞的 HAL_UART_Transmit：
- * 波特率 9600 时 1 字节约 1.04ms，一帧 20 字节要阻塞 20ms，会直接挤掉 10ms
- * 的平衡控制周期，小车必倒。所以发送一律走中断，主循环只负责往缓冲里塞。
+ * 即使 115200bps，阻塞发一帧仍可能挤占平衡控制周期，所以发送一律走中断，
+ * 主循环只负责往缓冲里塞。
  */
 
 #include "comm_port.h"
 #include "usart.h"
 
 /* Define --------------------------------------------------------------------*/
-/* 两个缓冲大小都必须是 2 的幂，下面用位与代替取模 */
-#define COMM_RX_RING_SIZE (64U)
-#define COMM_TX_RING_SIZE (256U)
+/* 两个缓冲大小都必须是 2 的幂，下面用位与代替取模。
+ * 接收缓冲 256 字节按"主循环最长一次卡多久"算：115200bps 每毫秒进 11.5 字节，
+ * 而 OLED 刷一行要十几毫秒、Flash 擦写(cali 命令)要几十毫秒，这期间没人来取字节。
+ * 256 字节约等于 22ms 的余量；原来的 64 字节只够 5.5ms，粘一段长命令就溢出。
+ * 发送缓冲 512 字节是为了装得下 CLI 的多行输出(help/status 一次约 200 字节)，
+ * 115200bps 下约 45ms 发完；缓冲小了后面几行会被整块丢弃 */
+#define COMM_RX_RING_SIZE (256U)
+#define COMM_TX_RING_SIZE (512U)
 #define COMM_RX_RING_MASK (COMM_RX_RING_SIZE - 1U)
 #define COMM_TX_RING_MASK (COMM_TX_RING_SIZE - 1U)
 
@@ -77,13 +82,14 @@ uint8_t CommPort_RxPop(uint8_t *const pByte)
 }
 
 /**
- * @brief  整帧写入发送缓冲
- * @param  pData 帧首地址(含帧头帧尾)
- * @param  len   帧长度
- * @retval 1:已全部写入  0:剩余空间不足，整帧丢弃
- * @note   要么整帧写入要么整帧丢弃：半帧上线只会让对端收到坏帧，还得等超时重同步
+ * @brief  整块写入发送缓冲(协议帧或 CLI 文本都走这里)
+ * @param  pData 数据首地址
+ * @param  len   数据长度
+ * @retval 1:已全部写入  0:剩余空间不足，整块丢弃
+ * @note   要么整块写入要么整块丢弃：半帧上线只会让对端收到坏帧，还得等超时重同步；
+ *         CLI 输出同理，宁可整行不打印也不要打印半行
  */
-uint8_t CommPort_TxPushFrame(const uint8_t *pData, uint16_t len)
+uint8_t CommPort_TxPush(const uint8_t *pData, uint16_t len)
 {
     uint16_t i;
 
@@ -136,6 +142,7 @@ static uint16_t CommPort_TxFree(void)
  * @note   txBusyLen 与 HAL 状态的检查+提交必须原子完成：否则 TxCplt 中断可能在
  *         检查和提交之间插进来同时启动一次发送，同一段数据会被发两遍
  */
+ //If the UART truck is free, load the next continuous group of bytes onto it and start transmission.
 static void CommPort_TxStart(void)
 {
     uint32_t primask = __get_PRIMASK();

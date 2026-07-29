@@ -46,6 +46,15 @@ void CommSend_Init(void)
 }
 
 /**
+ * @brief  当前是否正在周期上报
+ * @retval 1:上报开着(终端上会是乱码)  0:已关闭
+ */
+uint8_t CommSend_IsReporting(void)
+{
+    return ((0U != commReportCfg.period_10ms) && (0U != commReportCfg.mask)) ? 1U : 0U;
+}
+
+/**
  * @brief  周期上报调度，由 Comm_Poll() 每圈主循环调用
  */
 void CommSend_Poll(void)

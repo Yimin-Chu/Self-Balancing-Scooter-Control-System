@@ -139,6 +139,43 @@ void OLED_ShowChar(uint8_t x,uint8_t y,uint8_t chr,uint8_t Char_Size)
 			}
 }
  
+/* 整行刷新：一次 I2C 突发写完一个页(8 像素高 × 128 列)
+ *
+ * 为什么不直接用 OLED_ShowString：它每个字符要发 3 次定位命令 + 6 次数据，
+ * 每次 HAL_I2C_Mem_Write 都是一整笔 START/STOP 事务。100kHz 下单次约 0.3ms，
+ * 一个字符 ~2.6ms，一行 16 字符要 ~40ms —— 比 10ms 的平衡控制周期还长，
+ * 刷屏期间小车等于失控。
+ *
+ * 这里先在内存里拼好整页 128 字节，再用 2 笔事务发出去(定位 + 数据)，
+ * 一行约 12ms@100kHz。字模 6 列 + 2 列空隙 = 每字符 8 列，
+ * 和 OLED_ShowString 的 8 像素步进一致，所以显示效果不变。
+ * 字符串不足 16 个字符时用空格补满，因此不需要在格式化字符串里手动补空格。
+ */
+void OLED_ShowLine(uint8_t page, const char *str)
+{
+	static uint8_t buf[OLED_LINE_COLS];
+	uint8_t cmd[3];
+	uint8_t i, j, ch;
+
+	for(i=0; i<OLED_LINE_CHARS; i++)
+	{
+		ch = (*str != '\0') ? (uint8_t)(*str++) : (uint8_t)' ';
+		//F6x8 只收录到 'z'(0x7A)，越界会读到字库数组外的内存
+		if((ch < ' ') || (ch > 'z')) ch = ' ';
+		ch -= ' ';
+
+		for(j=0; j<6; j++) buf[i*8+j] = F6x8[ch][j];
+		buf[i*8+6] = 0x00;
+		buf[i*8+7] = 0x00;
+	}
+
+	cmd[0] = 0xB0 + page;   //页地址
+	cmd[1] = 0x00;          //列低地址
+	cmd[2] = 0x10;          //列高地址
+	HAL_I2C_Mem_Write(&hi2c1, 0x78, 0x00, I2C_MEMADD_SIZE_8BIT, cmd, 3, 0x100);
+	HAL_I2C_Mem_Write(&hi2c1, 0x78, 0x40, I2C_MEMADD_SIZE_8BIT, buf, OLED_LINE_COLS, 0x100);
+}
+
 //显示一个字符号串
 void OLED_ShowString(uint8_t x,uint8_t y,uint8_t *chr,uint8_t Char_Size)
 {

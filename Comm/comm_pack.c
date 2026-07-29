@@ -10,6 +10,7 @@
  * 都能立刻重新对齐帧头，不用等超时——这是这套格式最实用的地方。
  */
 
+#include "comm_echo.h"
 #include "comm_pack.h"
 #include "comm_port.h"
 #include "comm_receive.h"
@@ -35,6 +36,10 @@ CommPackStat_tTypeDef commPackStat;
 static uint8_t rxData[COMM_RX_FRAME_LEN_MAX];
 static uint8_t txBuf[COMM_TX_FRAME_LEN_MAX];
 
+static CommPackSta_eTypeDef rxState   = PACK_STA_START;
+static uint8_t              rxPoint   = 0U;
+static uint32_t             rxLastTick = 0U; // 最近一次收到帧内字节的时刻
+
 /* Function ------------------------------------------------------------------*/
 static void     commPack_reportError(uint8_t cmdId, revError_eTypeDef revError);
 static void     commPack_dispatch(uint8_t *pFrame, uint8_t len);
@@ -51,43 +56,40 @@ static uint16_t commPack_fillEscapeCrc(uint16_t point, uint8_t byte, uint8_t *co
  */
 uint8_t CommPack_RxByte(uint8_t byte)
 {
-    static CommPackSta_eTypeDef state    = PACK_STA_START;
-    static uint8_t              bufPoint = 0;
-
-    switch (state)
+    switch (rxState)
     {
     case PACK_STA_START:
         if (FRAME_HEAD_CHAR != byte)
         {
             return 0U;
         }
-        state    = PACK_STA_ING;
-        bufPoint = 0U;
+        rxState = PACK_STA_ING;
+        rxPoint = 0U;
         break;
 
     case PACK_STA_ING:
         if (FRAME_END_CHAR == byte)
         {
-            state = PACK_STA_START;
-            commPack_dispatch(rxData, bufPoint);
+            rxState = PACK_STA_START;
+            commPack_dispatch(rxData, rxPoint);
         }
         else if (FRAME_ESCAPE_CHAR == byte)
         {
-            state = PACK_STA_ESCAPE;
+            rxState = PACK_STA_ESCAPE;
         }
         else if (FRAME_HEAD_CHAR == byte)
         {
-            bufPoint = 0U; // 上一帧没收完就来了新帧头，直接重新对齐
+            rxPoint = 0U; // 上一帧没收完就来了新帧头，直接重新对齐
         }
-        else if (bufPoint >= COMM_RX_FRAME_LEN_MAX)
+        else if (rxPoint >= COMM_RX_FRAME_LEN_MAX)
         {
             commPackStat.frameError++;
             commPack_reportError(0XFFU, REV_ERROR_OVER_NUM);
-            state = PACK_STA_START;
+            rxState = PACK_STA_START;
         }
         else
         {
-            rxData[bufPoint++] = byte;
+            rxData[rxPoint++] = byte;
         }
         break;
 
@@ -97,27 +99,55 @@ uint8_t CommPack_RxByte(uint8_t byte)
         {
             commPackStat.frameError++;
             commPack_reportError(0XFFU, REV_ERROR_FRAME);
-            state = PACK_STA_START;
+            rxState = PACK_STA_START;
         }
-        else if (bufPoint >= COMM_RX_FRAME_LEN_MAX)
+        else if (rxPoint >= COMM_RX_FRAME_LEN_MAX)
         {
             commPackStat.frameError++;
             commPack_reportError(0XFFU, REV_ERROR_OVER_NUM);
-            state = PACK_STA_START;
+            rxState = PACK_STA_START;
         }
         else
         {
-            rxData[bufPoint++] = byte;
-            state              = PACK_STA_ING;
+            rxData[rxPoint++] = byte;
+            rxState           = PACK_STA_ING;
         }
         break;
 
     default:
-        state = PACK_STA_START;
+        rxState = PACK_STA_START;
         break;
     }
 
+    rxLastTick = HAL_GetTick();
+
     return 1U;
+}
+
+/**
+ * @brief  解帧超时检查，放在主循环里调用
+ * @note   没有这个超时，一个杂散的 0x3C 就能让 CLI 彻底哑掉：状态机进了帧内之后
+ *         会把后面每个字节都当帧内容吞掉(RxByte 恒返回 1)，文本再也到不了 CLI，
+ *         而 0x3E 不一定会出现，于是只能靠复位恢复。
+ *         波特率配错时的噪声、或者在终端里手滑敲了个 '<'，都会踩到这一条。
+ */
+void CommPack_Poll(void)
+{
+    if (PACK_STA_START == rxState)
+    {
+        return;
+    }
+
+    if ((HAL_GetTick() - rxLastTick) < COMM_FRAME_TIMEOUT_MS)
+    {
+        return;
+    }
+
+    commPackStat.frameError++;
+    rxState = PACK_STA_START;
+    rxPoint = 0U;
+
+    CommEcho_SetEvent("frm timeout");
 }
 
 /**
@@ -161,7 +191,7 @@ packErrorType CommPack_Send(uint8_t cmdId, const void *pData, uint8_t length)
 
     txBuf[point++] = FRAME_END_CHAR;
 
-    return CommPort_TxPushFrame(txBuf, point) ? PACK_ERROR_NONE : PACK_ERROR_FULL;
+    return CommPort_TxPush(txBuf, point) ? PACK_ERROR_NONE : PACK_ERROR_FULL;
 }
 
 /**
@@ -188,6 +218,8 @@ static void commPack_dispatch(uint8_t *pFrame, uint8_t len)
     if (crc16_check(pFrame, len))
     {
         commPackStat.crcError++;
+        /* 波特率配错时这个数会一路涨，是很直观的排查线索 */
+        CommEcho_SetEvent("crc err n%u", (unsigned)commPackStat.crcError);
         commPack_reportError(0XFFU, REV_ERROR_CRC);
         return;
     }
@@ -196,6 +228,7 @@ static void commPack_dispatch(uint8_t *pFrame, uint8_t len)
     if (((uint16_t)pFrame[0] + 4U) != (uint16_t)len)
     {
         commPackStat.frameError++;
+        CommEcho_SetEvent("len err n%u", (unsigned)commPackStat.frameError);
         commPack_reportError(pFrame[1], REV_ERROR_LEN);
         return;
     }
@@ -218,6 +251,10 @@ static void commPack_dispatch(uint8_t *pFrame, uint8_t len)
     {
         commPack_reportError(cmdId, revError);
     }
+
+    /* 带上帧计数：手机 App 反复下发同一条命令时，OLED 上也看得出数字在动 */
+    CommEcho_SetEvent("f%02X %s n%u", cmdId, (REV_ERROR_NONE == revError) ? "ok" : "er",
+                      (unsigned)commPackStat.rxFrame);
 }
 
 /**

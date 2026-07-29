@@ -20,9 +20,12 @@
 /* 1:保留旧的单字节遥控码(0x01/0x03/0x05/0x07/0x09)  0:只认新协议帧 */
 #define COMM_LEGACY_BYTE_CMD_ENABLE (1)
 
-/* 单次 Comm_Poll() 最多解析的字节数。9600bps 一个 10ms 周期最多来 10 个字节，
- * 32 已经很宽裕；设上限只是为了万一缓冲积压也不会把控制周期拖长 */
-#define COMM_RX_POLL_BUDGET (32U)
+/* 1:帧外的可见字符转给串口命令行(Cli/cli.c)  0:关闭 CLI */
+#define COMM_CLI_ENABLE (1)
+
+/* 单次 Comm_Poll() 最多解析的字节数。115200bps 一个 10ms 周期最多约 115 字节，
+ * 与 RX 环形缓冲(64)对齐，避免积压溢出；设上限也防止一次解析拖太久 */
+#define COMM_RX_POLL_BUDGET (64U)
 
 void Comm_Init(void);
 void Comm_Poll(void);

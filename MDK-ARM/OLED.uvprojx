@@ -339,7 +339,7 @@
               <MiscControls></MiscControls>
               <Define>USE_HAL_DRIVER,STM32F103xB</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../Drivers/STM32F1xx_HAL_Driver/Inc;../Drivers/STM32F1xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F1xx/Include;../Drivers/CMSIS/Include;../MyCode;../Comm</IncludePath>
+              <IncludePath>../Core/Inc;../Drivers/STM32F1xx_HAL_Driver/Inc;../Drivers/STM32F1xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F1xx/Include;../Drivers/CMSIS/Include;../MyCode;../Comm;../Cli;../Storage</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -586,6 +586,11 @@
               <FilePath>../Comm/comm.c</FilePath>
             </File>
             <File>
+              <FileName>comm_echo.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Comm/comm_echo.c</FilePath>
+            </File>
+            <File>
               <FileName>comm_pack.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Comm/comm_pack.c</FilePath>
@@ -609,6 +614,31 @@
               <FileName>crc16.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Comm/crc16.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Application/User/Cli</GroupName>
+          <Files>
+            <File>
+              <FileName>cli.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Cli/cli.c</FilePath>
+            </File>
+            <File>
+              <FileName>cli_cmd.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Cli/cli_cmd.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>Application/User/Storage</GroupName>
+          <Files>
+            <File>
+              <FileName>cali_store.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Storage/cali_store.c</FilePath>
             </File>
           </Files>
         </Group>

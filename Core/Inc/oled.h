@@ -2,7 +2,7 @@
 #define __OLED_H__
 
 #include "stm32f1xx_hal.h"
-// π”√”≤º˛I2C1
+//?ùù?ùùI2C1
 ///
 #define   OLED_GPIO_CLK_ENABLE()         __HAL_RCC_GPIOA_CLK_ENABLE()
 
@@ -17,6 +17,11 @@
 #define   OLED_SDA_TOGGLE()             HAL_GPIO_TogglePin(GPIOx_OLED_PORT, OLED_SDA_PIN)
 ///
 
+/* ?? = ????16 ???? ù 8 ? = 128 ?????????
+ * ?? 16 ???????? OLED_ShowLine ??(??? OLED_ShowString ?????????) */
+#define OLED_LINE_CHARS (16U)
+#define OLED_LINE_COLS  (128U)
+
 void WriteCmd(void);
 void OLED_WR_CMD(uint8_t cmd);
 void OLED_WR_DATA(uint8_t data);
@@ -29,6 +34,7 @@ void OLED_On(void);
 void OLED_ShowNum(uint8_t x,uint8_t y,unsigned int num,uint8_t len,uint8_t size2);
 void OLED_ShowChar(uint8_t x,uint8_t y,uint8_t chr,uint8_t Char_Size);
 void OLED_ShowString(uint8_t x,uint8_t y,uint8_t *chr,uint8_t Char_Size);
+void OLED_ShowLine(uint8_t page, const char *str);
 void OLED_ShowCHinese(uint8_t x,uint8_t y,uint8_t no);
 
 

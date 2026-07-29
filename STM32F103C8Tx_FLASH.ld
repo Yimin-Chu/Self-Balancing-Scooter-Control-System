@@ -15,11 +15,18 @@ _estack = 0x20005000;
 _Min_Heap_Size  = 0x200;   /* 512 字节堆  */
 _Min_Stack_Size = 0x400;   /* 1024 字节栈 */
 
-/* 存储器定义 */
+/* 存储器定义
+ *
+ * 最后 1K(0x0800FC00~0x0800FFFF, 中容量 F103 的一页) 划出来存 IMU 标定数据，
+ * 所以给代码的 FLASH 只写 63K。这样一旦代码涨过 63K，链接器会直接报
+ * "region FLASH overflowed" 而不是在运行时把标定页擦掉——这种运行期才暴露的
+ * 覆盖问题极难查，宁可让它编译不过。
+ * 页地址与 Storage/cali_store.h 的 CALI_STORE_ADDR 必须保持一致。
+ */
 MEMORY
 {
   RAM   (xrw) : ORIGIN = 0x20000000, LENGTH = 20K
-  FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 64K
+  FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 63K
 }
 
 SECTIONS
@@ -53,6 +60,25 @@ SECTIONS
     . = ALIGN(4);
     *(.rodata)
     *(.rodata*)
+    . = ALIGN(4);
+  } >FLASH
+
+  /* CLI 命令自动注册表
+   *
+   * CLI_CMD_EXPORT 宏把每条命令的描述结构体扔进 cli_cmd 段，链接器在这里把它们
+   * 收成一个连续数组，cli.c 用 _cli_cmd_start/_cli_cmd_end 遍历。这样加一条新命令
+   * 只要写一个函数 + 一行宏，不用回头改任何注册列表。
+   *
+   * KEEP 不能省: 工程开了 -Wl,--gc-sections，没有 KEEP 的话这些结构体因为
+   * "没有任何代码引用" 会被当成垃圾回收掉，表就空了。
+   */
+  .cli_cmd :
+  {
+    . = ALIGN(4);
+    _cli_cmd_start = .;
+    KEEP (*(cli_cmd))
+    KEEP (*(SORT(cli_cmd.*)))
+    _cli_cmd_end = .;
     . = ALIGN(4);
   } >FLASH
 

@@ -10,6 +10,7 @@
  */
 
 #include "comm_receive.h"
+#include "comm_echo.h"
 #include "comm_pack.h"
 #include "comm_send.h"
 #include "math.h"
@@ -68,6 +69,8 @@ void CommReceive_LegacyByte(uint8_t byte)
 {
     Bluetooth_data   = byte;
     last_bt_cmd_tick = HAL_GetTick();
+
+    CommEcho_SetEvent("byte %02X", byte);
 
     switch (byte)
     {

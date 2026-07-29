@@ -187,6 +187,23 @@ void Calibrate_Med_Angle(void)
 }
 
 // ---------------------------------------------------------------------------
+// 套用一组现成的标定值(从 Flash 读回来的)，跳过 20s 静置。
+//
+// gyrox_offset_f 必须一起写：它是 Update_Gyrox_Bias 的 IIR 状态量，也是判断
+// "本次采样是否异常" 的基准(dev = |raw - gyrox_offset_f|)。只写 gyrox_offset
+// 而漏掉它的话，gyrox_offset_f 保持 0，dev 会一直大于 STATIC_GYRO_REJECT，
+// 运行时零偏跟踪就彻底失效了——而且现象很隐蔽，只表现为长时间运行后慢慢跑偏。
+// ---------------------------------------------------------------------------
+void Calibrate_Apply(float med_angle, int gyrox_off)
+{
+    Med_Angle      = med_angle;
+    gyrox_offset   = gyrox_off;
+    gyrox_offset_f = (float)gyrox_off;
+    static_count   = 0;
+    fail_continus  = 0;
+}
+
+// ---------------------------------------------------------------------------
 // Vertical (balance) PD controller
 // ---------------------------------------------------------------------------
 int Vertical(float Med, float Angle, float gyro_Y)

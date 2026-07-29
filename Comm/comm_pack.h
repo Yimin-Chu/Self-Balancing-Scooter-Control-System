@@ -20,7 +20,11 @@ typedef struct
 
 extern CommPackStat_tTypeDef commPackStat;
 
+/* 帧内静默多久就放弃这一帧(ms)。串口再慢，一帧的字节间隔也不会有这么久 */
+#define COMM_FRAME_TIMEOUT_MS (100U)
+
 uint8_t       CommPack_RxByte(uint8_t byte);
+void          CommPack_Poll(void);
 packErrorType CommPack_Send(uint8_t cmdId, const void *pData, uint8_t length);
 
 /* 追觅工程里发送用的是 send2board 宏，本工程对端是手机 App，改名 send2app */
