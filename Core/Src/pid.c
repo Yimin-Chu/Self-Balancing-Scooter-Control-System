@@ -254,6 +254,11 @@ int Turn(float gyro_Z, int Target_turn)
 volatile uint8_t  imu_data_ready      = 0;
 volatile uint32_t imu_last_ready_tick = 0;
 
+/* 已完成的控制周期数。通信层(comm_vofa.c)拿它给波形输出分频：主循环一圈的耗时
+ * 抖得厉害(OLED 刷新、Flash 读写)，按时间分频会出现同一拍发两帧或连跳两拍，
+ * 波形横轴就歪了；按控制周期数分频，每 N 拍恰好一帧 */
+volatile uint32_t control_cycle = 0;
+
 // 由 EXTI9_5 回调调用：只记录“有新 DMP 帧 + 何时到”。禁止在这里做 I2C / delay。
 void Imu_DataReady_FromISR(void)
 {
@@ -263,6 +268,14 @@ void Imu_DataReady_FromISR(void)
 }
 
 // 由主循环轮询：有新帧则返回1并清标志。RTOS 下改为阻塞式信号量 take。
+//
+// 前提：主循环单次阻塞必须 < 10ms(一个 MPU 中断间隔)。
+// imu_data_ready 是标志位不是计数器，而 mpu_dmp_get_data() 每次只取一包，所以一次
+// 阻塞若跨过两次中断，两次置位只被消费一次，DMP FIFO 就永久多压一包 —— 之后每拍读到
+// 的都是 10ms 前的旧姿态，且不会自愈，积压满 1024 字节还会触发 mpu_reset_fifo() 里的
+// HAL_Delay(50)。OLED 刷新(12.3ms)正是踩这条线的，已由 OLED_ENABLE 默认关掉。
+// 以后再往主循环加阻塞操作(存参数到 Flash、恢复屏显等)，要么控制在 10ms 内，要么把
+// 这里改成计数器 + 在 Control() 里循环排空 FIFO。
 uint8_t Imu_ControlPending(void)
 {
     if (imu_data_ready)
@@ -364,4 +377,7 @@ void Control(void)
     {
         Load(0, 0);
     }
+
+    /* 放在最后自增：通信层看到它变化时，上面那些控制量已经全部是本拍的新值 */
+    control_cycle++;
 }

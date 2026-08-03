@@ -35,6 +35,7 @@ Comm/comm_pack.c \
 Comm/comm_port.c \
 Comm/comm_receive.c \
 Comm/comm_send.c \
+Comm/comm_vofa.c \
 Comm/crc16.c \
 Cli/cli.c \
 Cli/cli_cmd.c \

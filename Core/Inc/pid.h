@@ -36,4 +36,8 @@ uint8_t  Imu_ControlPending(void);      /* 主循环里调用：有新帧返回1
 
 extern volatile uint32_t imu_last_ready_tick;  /* 最近一次数据就绪的 tick(用于超时) */
 
+/* 已完成的控制周期数，每跑完一次 Control() 自增。
+ * 供通信层给波形输出分频用，比按 HAL_GetTick() 分频得到的采样间隔更均匀 */
+extern volatile uint32_t control_cycle;
+
 #endif

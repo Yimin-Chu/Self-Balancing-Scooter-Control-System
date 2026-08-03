@@ -30,7 +30,9 @@
 #include "inv_mpu.h"
 #include "inv_mpu_dmp_motion_driver.h"
 #include "mpu6050.h"
+#if OLED_ENABLE
 #include "stdio.h"
+#endif
 #include "sr04.h"
 #include "motor.h"
 #include "encoder.h"
@@ -61,7 +63,9 @@ extern float roll;
 extern short gyrox, gyroy, gyroz;
 extern int Encoder_Left, Encoder_Right;
 extern int gyrox_offset;
+#if OLED_ENABLE
 uint8_t display_buf[32];
+#endif
 uint32_t sys_tick;
 extern float distance;
 /* USER CODE END PV */
@@ -70,7 +74,9 @@ extern float distance;
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 void Read(void);
+#if OLED_ENABLE
 static void Display_Poll(void);
+#endif
 /* If pid.h doesn't declare it, uncomment this:
    extern void Calibrate_Med_Angle(void);                                    */
 /* USER CODE END PFP */
@@ -108,18 +114,25 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+#if OLED_ENABLE
+  /* I2C1 全工程只有 OLED 在用，关屏时连初始化一起省掉，HAL_I2C 驱动也就不会被链进来 */
   MX_I2C1_Init();
+#endif
   MX_TIM3_Init();
   MX_TIM1_Init();
   MX_TIM2_Init();
   MX_TIM4_Init();
   MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
+#if OLED_ENABLE
   OLED_Init();
   OLED_Clear();
+#endif
   MPU_Init();
   mpu_dmp_init();
+#if OLED_ENABLE
   OLED_ShowString(0, 0, "Init Sucess", 16);
+#endif
 
   // -----------------------------------------------------------------------
   // STARTUP ORDER (critical!)
@@ -144,21 +157,27 @@ int main(void)
   if (0 == CaliStore_Load())
   {
     Calibrate_Apply(CaliStore_GetMedAngle(), (int)CaliStore_GetGyroxOffset());
+#if OLED_ENABLE
     OLED_ShowString(0, 2, "Cali from flash", 12);
+#endif
   }
   else
   {
+#if OLED_ENABLE
     OLED_ShowString(0, 2, "Calibrating...", 16);
     OLED_ShowString(0, 4, "Hold still ~20s", 12);
+#endif
     Calibrate_Med_Angle();
     CaliStore_Save(Med_Angle, (int32_t)gyrox_offset);
   }
+#if OLED_ENABLE
   OLED_Clear();
   OLED_ShowString(0, 0, "Ready", 16);
   sprintf((char *)display_buf, "gyrox_off:%d", gyrox_offset);
   OLED_ShowString(0, 2, display_buf, 12);
   HAL_Delay(1000);   // let user briefly see the calibrated offset
   OLED_Clear();
+#endif
 
   // 2. Start encoders so Control() reads valid wheel counts immediately.
   HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
@@ -202,8 +221,10 @@ int main(void)
     /* 蓝牙通信轮询：解析收到的协议帧、按周期上报状态。中断只搬字节，解析在这里做。 */
     Comm_Poll();
 
+#if OLED_ENABLE
     /* 显示节流(~10Hz)。OLED 刷新慢，不能每圈都刷，否则会挤占 10ms 控制时序。 */
     Display_Poll();
+#endif
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -251,6 +272,8 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+#if OLED_ENABLE
 
 /**
   * @brief  OLED 刷新：每 100ms 最多刷一行
@@ -303,6 +326,8 @@ static void Display_Poll(void)
 
   sensorLine ^= 1U;
 }
+
+#endif /* OLED_ENABLE */
 
 /* USER CODE END 4 */
 

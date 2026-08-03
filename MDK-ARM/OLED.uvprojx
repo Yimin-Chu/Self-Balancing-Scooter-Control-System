@@ -611,6 +611,11 @@
               <FilePath>../Comm/comm_send.c</FilePath>
             </File>
             <File>
+              <FileName>comm_vofa.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Comm/comm_vofa.c</FilePath>
+            </File>
+            <File>
               <FileName>crc16.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Comm/crc16.c</FilePath>

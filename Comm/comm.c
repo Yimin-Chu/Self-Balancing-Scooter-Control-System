@@ -9,6 +9,7 @@
 #include "comm_port.h"
 #include "comm_receive.h"
 #include "comm_send.h"
+#include "comm_vofa.h"
 
 #if COMM_CLI_ENABLE
 #include "cli.h"
@@ -23,6 +24,7 @@ void Comm_Init(void)
     CommPort_Init();
     CommSend_Init();
     CommEcho_Init();
+    Vofa_Init();
 
 #if COMM_CLI_ENABLE
     Cli_Init();
@@ -72,5 +74,6 @@ void Comm_Poll(void)
 
     CommPack_Poll(); // 半截帧超时丢弃，否则杂散的 0x3C 会让 CLI 永久失声
     CommSend_Poll();
+    Vofa_Poll(); // 排在 TxKick 之前，波形帧当圈就能开始发
     CommPort_TxKick();
 }
