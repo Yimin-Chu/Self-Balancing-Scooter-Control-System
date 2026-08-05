@@ -478,7 +478,7 @@ arm-none-eabi-nm build/balance_car.elf | findstr _cli_cmd
 | ---- | ---- | ---- | -------- |
 | 0 | `roll` | 实测倾角(度) | 直立环 |
 | 1 | `roll_ref` | 目标角 = `Med_Angle + Velocity_out` | 直立环 |
-| 2 | `gyrox` | 角速度(已扣零偏)，直立环 D 项输入 | 直立环 |
+| 2 | `med` | 标定平衡中值角 `Med_Angle`（调速时当基准线；`roll_ref - med` ≈ 速度环输出） | 直立/速度 |
 | 3 | `vert_out` | 直立环输出，也就是基础 PWM | 直立环 |
 | 4 | `enc_sum` | 实测速度 = 左右编码器之和 | 速度环 |
 | 5 | `spd_ref` | 目标速度 | 速度环 |

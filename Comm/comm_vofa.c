@@ -21,7 +21,6 @@
 /* Datas ---------------------------------------------------------------------*/
 /* pid.c 的传感器与控制量 */
 extern float  roll;
-extern short  gyrox;
 extern int    Encoder_Left, Encoder_Right;
 extern int    Vertical_out, Velocity_out;
 extern int    Target_Speed;
@@ -35,13 +34,13 @@ static uint32_t          vofaLastCycle;
 static uint32_t          vofaDropCount;
 
 /* 通道顺序就是 VOFA+ 里曲线的顺序：
- * 直立环 ch0/ch1 比目标与实测、ch2 是 D 项输入、ch3 是直立输出；
- * 速度环 ch4/ch5 比实测与目标(速度环输出叠在 ch1 上，不单列)；
- * ch6/ch7 是限幅后的左右轮 PWM(真正 Load 用的量；motor_enable=0 时采 0) */
+ * 直立/速度：ch0 roll、ch1 roll_ref、ch2 med(标定中值，近似水平线)、ch3 vert_out；
+ * 速度环 ch4/ch5；ch1 - ch2 就是速度环输出的倾角修正；
+ * ch6/ch7 左右轮 PWM(motor_enable=0 时采 0) */
 static const char *const VOFA_CH_NAMES[VOFA_CH_NUM] = {
     "roll",     // 0 实测倾角(度)
     "roll_ref", // 1 直立环目标角 = Med_Angle + Velocity_out
-    "gyrox",    // 2 角速度(已扣零偏)，直立环 D 项输入
+    "med",      // 2 标定平衡中值角 Med_Angle(调速时当基准线)
     "vert_out", // 3 直立环输出，也就是基础 PWM
     "enc_sum",  // 4 实测速度 = 左右编码器之和
     "spd_ref",  // 5 目标速度
@@ -196,7 +195,7 @@ static void vofa_sample(float *pCh)
      * 把它和 roll 画在一起，直立环的跟随误差一眼可见 */
     pCh[0] = vofa_finite(roll);
     pCh[1] = vofa_finite(Med_Angle + (float)Velocity_out);
-    pCh[2] = (float)gyrox;
+    pCh[2] = vofa_finite(Med_Angle);
     pCh[3] = (float)Vertical_out;
     pCh[4] = (float)(Encoder_Left + Encoder_Right);
     pCh[5] = (float)Target_Speed;
