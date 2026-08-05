@@ -57,4 +57,9 @@ void    Cli_RxByte(uint8_t byte);
 uint8_t Cli_IsTextByte(uint8_t byte);
 void    Cli_Printf(const char *fmt, ...);
 
+/* 静默命令('@' 前缀)的成败计数，由 status 打印。静默通道不回执，
+ * 失败没有任何提示，这两个数是唯一的排查手段——详见 cli.c 里的说明 */
+uint16_t Cli_GetQuietOk(void);
+uint16_t Cli_GetQuietErr(void);
+
 #endif

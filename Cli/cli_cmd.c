@@ -36,6 +36,7 @@ static int cliCmd_start(int argc, char *argv[]);
 static int cliCmd_stop(int argc, char *argv[]);
 static int cliCmd_status(int argc, char *argv[]);
 static int cliCmd_pid(int argc, char *argv[]);
+static int cliCmd_spd(int argc, char *argv[]);
 static int cliCmd_vofa(int argc, char *argv[]);
 
 CLI_CMD_EXPORT(cali, "calibrate imu (~20s) and save to flash", cliCmd_cali);
@@ -43,6 +44,7 @@ CLI_CMD_EXPORT(start, "enable motors and run pid", cliCmd_start);
 CLI_CMD_EXPORT(stop, "disable motors", cliCmd_stop);
 CLI_CMD_EXPORT(status, "show control and comm status", cliCmd_status);
 CLI_CMD_EXPORT(pid, "show/set gains: pid [vkp vkd skp ski tkp med] <val>", cliCmd_pid);
+CLI_CMD_EXPORT(spd, "set speed target for step test: spd [<-30..30>|off]", cliCmd_spd);
 CLI_CMD_EXPORT(vofa, "vofa+ wave out: vofa [off jf fw rate <n>]", cliCmd_vofa);
 
 /**
@@ -163,6 +165,7 @@ static int cliCmd_start(int argc, char *argv[])
         return -1;
     }
 
+    Manual_Speed_Set(0);  // 留在 manual，只清目标，避免上次 spd 残留一使能就窜出去
     stop             = 1U;
     last_bt_cmd_tick = HAL_GetTick();
     motor_enable     = 1U;
@@ -183,6 +186,7 @@ static int cliCmd_stop(int argc, char *argv[])
     motor_enable = 0U;
     Load(0, 0);
     stop = 1U;
+    Manual_Speed_Set(0);  // 留在 manual，只清目标；要交还遥控用 spd off
 
     Cli_Printf("motors OFF\r\n");
 
@@ -202,10 +206,13 @@ static int cliCmd_status(int argc, char *argv[])
                Med_Angle, gyrox_offset);
     Cli_Printf("imu   : roll=%.2f gyrox=%d\r\n", roll, gyrox);
     Cli_Printf("wheel : encL=%d encR=%d\r\n", Encoder_Left, Encoder_Right);
+    Cli_Printf("spdref: %s\r\n", Manual_Speed_IsOn() ? "manual" : "remote");
+    if (Manual_Speed_IsOn()) { Cli_Printf("        target=%d\r\n", Manual_Speed_Get()); }
     Cli_Printf("comm  : rx=%u crcErr=%u frmErr=%u txDrop=%u\r\n", commPackStat.rxFrame,
                commPackStat.crcError, commPackStat.frameError, commPortStat.txDropFrame);
     Cli_Printf("vofa  : %s div=%u drop=%lu\r\n", Vofa_GetModeName(), Vofa_GetDiv(),
                (unsigned long)Vofa_GetDropCount());
+    Cli_Printf("quiet : ok=%u err=%u\r\n", Cli_GetQuietOk(), Cli_GetQuietErr());
 
     return 0;
 }
@@ -294,6 +301,45 @@ static int cliCmd_pid(int argc, char *argv[])
     }
 
     Cli_Printf("%s = %.3f\r\n", argv[1], value);
+
+    return 0;
+}
+
+/**
+ * @brief  spd：设定速度环目标，用来做阶跃响应
+ * @note   进的是 pid.c 的手动目标通道而不是 Target_Speed 本身 —— 后者每个控制周期
+ *         都被 Control() 按遥控输入重算，直接写留不住。开机默认就在 manual。
+ *         生效期间转向被强制为 0。VOFA+ 滑块绑 "@spd %.0f\n" 即可拖着设值。
+ *         超过 MANUAL_SPEED_TIMEOUT_MS 没有新设定会把目标清 0，但仍留在 manual；
+ *         只有 spd off 才交还给蓝牙遥控。
+ */
+static int cliCmd_spd(int argc, char *argv[])
+{
+    float value;
+
+    if (argc < 2)
+    {
+        Cli_Printf("spd : %s target=%d\r\n", Manual_Speed_IsOn() ? "manual" : "remote",
+                   Manual_Speed_Get());
+        return 0;
+    }
+
+    if (0 == strcmp(argv[1], "off"))
+    {
+        Manual_Speed_Off();
+        Cli_Printf("spd = remote\r\n");
+        return 0;
+    }
+
+    if (0U != cliStr2Float(argv[1], &value))
+    {
+        Cli_Printf("bad number: %s\r\n", argv[1]);
+        return -1;
+    }
+
+    Manual_Speed_Set((int)value);
+    /* 回显读回来的值而不是入参：超出 ±SPEED_Y 会被夹住，让你看见夹了 */
+    Cli_Printf("spd = %d\r\n", Manual_Speed_Get());
 
     return 0;
 }

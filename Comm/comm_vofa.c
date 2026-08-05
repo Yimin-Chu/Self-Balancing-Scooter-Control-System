@@ -20,22 +20,24 @@
 
 /* Datas ---------------------------------------------------------------------*/
 /* pid.c 的传感器与控制量 */
-extern float roll;
-extern short gyrox, gyroz;
-extern int   Encoder_Left, Encoder_Right;
-extern int   Vertical_out, Velocity_out, Turn_out;
-extern int   Target_Speed;
-extern float Med_Angle;
+extern float  roll;
+extern short  gyrox;
+extern int    Encoder_Left, Encoder_Right;
+extern int    Vertical_out, Velocity_out;
+extern int    Target_Speed;
+extern int    MOTO1, MOTO2;
+extern float  Med_Angle;
+extern uint8_t motor_enable;
 
 static VofaMode_eTypeDef vofaMode;
 static uint8_t           vofaDiv;
 static uint32_t          vofaLastCycle;
 static uint32_t          vofaDropCount;
 
-/* 通道顺序就是 VOFA+ 里曲线的顺序。分三组，每组是一个环需要的三条线：
- * 直立环 ch0/ch1 比目标与实测、ch2 是它的 D 项输入、ch3 是它的输出；
- * 速度环 ch4/ch5 比目标与实测(速度环的输出叠加在 ch1 上，所以没单列)；
- * 转向环 ch6 是 D 项输入、ch7 是输出 */
+/* 通道顺序就是 VOFA+ 里曲线的顺序：
+ * 直立环 ch0/ch1 比目标与实测、ch2 是 D 项输入、ch3 是直立输出；
+ * 速度环 ch4/ch5 比实测与目标(速度环输出叠在 ch1 上，不单列)；
+ * ch6/ch7 是限幅后的左右轮 PWM(真正 Load 用的量；motor_enable=0 时采 0) */
 static const char *const VOFA_CH_NAMES[VOFA_CH_NUM] = {
     "roll",     // 0 实测倾角(度)
     "roll_ref", // 1 直立环目标角 = Med_Angle + Velocity_out
@@ -43,8 +45,8 @@ static const char *const VOFA_CH_NAMES[VOFA_CH_NUM] = {
     "vert_out", // 3 直立环输出，也就是基础 PWM
     "enc_sum",  // 4 实测速度 = 左右编码器之和
     "spd_ref",  // 5 目标速度
-    "gyroz",    // 6 转向角速度，转向环 D 项输入
-    "turn_out", // 7 转向环输出，叠加到左右轮上的差值
+    "pwm_l",    // 6 左轮 PWM = MOTO1(Limit 后)
+    "pwm_r",    // 7 右轮 PWM = MOTO2(Limit 后)
 };
 
 static const char *const VOFA_MODE_NAMES[VOFA_MODE_TOTAL] = {
@@ -198,8 +200,9 @@ static void vofa_sample(float *pCh)
     pCh[3] = (float)Vertical_out;
     pCh[4] = (float)(Encoder_Left + Encoder_Right);
     pCh[5] = (float)Target_Speed;
-    pCh[6] = (float)gyroz;
-    pCh[7] = (float)Turn_out;
+    /* 与 Load() 一致：未使能时实际输出为 0，波形也按 0 采，避免误判 */
+    pCh[6] = (0U != motor_enable) ? (float)MOTO1 : 0.0f;
+    pCh[7] = (0U != motor_enable) ? (float)MOTO2 : 0.0f;
 }
 
 /**

@@ -89,7 +89,12 @@ CFLAGS += -MMD -MP -MF"$(@:%.o=%.d)"
 ######################################
 LDSCRIPT = STM32F103C8Tx_FLASH.ld
 LIBS = -lc -lm -lnosys
-# -u _printf_float: 让 nano 库的 sprintf 支持 %f (OLED 显示 roll 用了 %.1f)
+# -u _printf_float: 让 nano 库的 printf/snprintf 支持 %f。
+# 现在的用户是 Cli/cli_cmd.c 的十几处 %.2f 和 Comm/comm_vofa.c 的 FireWater 文本帧
+# (OLED 那个老用户已随 OLED_ENABLE=0 消失)。
+# 代价不小：_printf_float 1112 + _dtoa_r 3020 + dtoa 拖进来的 _malloc_r/_sbrk 约 350，
+# 合计约 4.5KB FLASH。真到了 FLASH 不够用的时候，把这些 %f 换成定点格式化
+# (整数部分 + 两位小数分开打) 再删掉本行，是单笔收益最大的一刀。
 LDFLAGS = $(MCU) -specs=nano.specs -u _printf_float -T$(LDSCRIPT) $(LIBS) \
           -Wl,-Map=$(BUILD_DIR)/$(TARGET).map,--cref -Wl,--gc-sections
 

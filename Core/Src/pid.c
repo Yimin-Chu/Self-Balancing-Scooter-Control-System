@@ -37,8 +37,52 @@ extern TIM_HandleTypeDef htim2, htim4;
 extern float distance;
 extern uint8_t Fore, Back, Left, Right;
 
-#define SPEED_Y  30
 #define SPEED_Z  150
+
+// ===========================================================================
+// 手动速度目标 (调参用)
+// ---------------------------------------------------------------------------
+// 为什么要单开一条通道：Control() 每一拍都会按遥控输入重算 Target_Speed(见下面
+// 第 2 步)，外部直接写它的话，写进去的值活不过 10ms 就被覆盖了。所以这里存一份
+// 独立的目标值，由 Control() 在遥控分支之前优先取用。
+//
+// 用途是给速度环做阶跃：VOFA+ 上绑个滑块发 "@spd %.0f\n"，ch5(spd_ref) 立刻跟着
+// 动，然后看 ch4(enc_sum) 用多久追上去、超调多少。原先没有这条通道时 spd_ref
+// 恒为 0，速度环只能靠"推一把看它怎么回来"的抗扰测试来调。
+//
+// 开机默认就在 manual（目标 0），只有显式 spd off 才交还给蓝牙遥控。这样 VOFA
+// 滑块不会被 start/看门狗踢回 remote。
+//
+// 自带看门狗：超过 MANUAL_SPEED_TIMEOUT_MS 没有新的设定就把目标清 0（并清速度环
+// 积分），但不退出 manual。拖滑块期间每次改动都会刷新它，所以只有撒手不管才触发。
+// ===========================================================================
+static int      manualSpeed;       // 已夹到 ±SPEED_Y，开机为 0
+static uint8_t  manualEn = 1;      // 开机默认 manual；spd off 才清零
+static uint32_t manualTick;        // 最后一次设定的时刻
+
+void Manual_Speed_Set(int speed)
+{
+    manualSpeed = (speed >  SPEED_Y) ?  SPEED_Y :
+                 ((speed < -SPEED_Y) ? -SPEED_Y : speed);
+    manualEn    = 1;
+    manualTick  = HAL_GetTick();
+}
+
+void Manual_Speed_Off(void)
+{
+    manualSpeed = 0;
+    manualEn    = 0;
+}
+
+uint8_t Manual_Speed_IsOn(void)
+{
+    return manualEn;
+}
+
+int Manual_Speed_Get(void)
+{
+    return manualSpeed;
+}
 
 // ===========================================================================
 // Runtime gyrox zero-bias tracking (slow IIR)
@@ -310,48 +354,72 @@ void Control(void)
     // Apply gyrox zero-bias correction.
     gyrox -= gyrox_offset;
 
-    // 2. Remote command handling
-    bt_timeout = ((HAL_GetTick() - last_bt_cmd_tick) > CMD_TIMEOUT_MS) ? 1 : 0;
-
-    if (bt_timeout)
+    // 2. 目标值的来源：调参用的手动目标优先，其次才是蓝牙遥控
+    //
+    // 手动目标必须在这里覆盖而不是让外部直接写 Target_Speed —— 下面的遥控分支
+    // 每拍都会重算它，外部写进去的值撑不过一个控制周期。
+    /* 看门狗：只清非零目标，不退出 manual。目标已是 0 时不再反复置 stop */
+    if (manualEn && (0 != manualSpeed) &&
+        ((HAL_GetTick() - manualTick) > MANUAL_SPEED_TIMEOUT_MS))
     {
-        Target_Speed = 0;
-        Target_turn  = 0;
-        if (!prev_bt_timeout) { stop = 1; }
+        manualSpeed = 0;
+        stop        = 1; // 清速度环积分，避免目标归零后积分还顶着输出
+    }
+
+    if (manualEn)
+    {
+        Target_Speed = manualSpeed;
+        Target_turn  = 0;     // 调速度环时不让转向掺进来
+
+        // 退出手动模式后的第一拍，下面的遥控分支会看到 prev_bt_timeout==0 而置
+        // stop，把手动阶跃期间攒下的速度环积分清掉，避免切回遥控时输出突跳
+        prev_bt_timeout = 0;
+        prev_neutral    = 0;
     }
     else
     {
-        neutral = ((Fore == 0) && (Back == 0)) ? 1 : 0;
+        bt_timeout = ((HAL_GetTick() - last_bt_cmd_tick) > CMD_TIMEOUT_MS) ? 1 : 0;
 
-        if (neutral)
+        if (bt_timeout)
         {
             Target_Speed = 0;
-            if (!prev_neutral) { stop = 1; }
+            Target_turn  = 0;
+            if (!prev_bt_timeout) { stop = 1; }
         }
         else
         {
-            if (Fore == 1)
+            neutral = ((Fore == 0) && (Back == 0)) ? 1 : 0;
+
+            if (neutral)
             {
-                if (distance < 50) Target_Speed--;
-                else               Target_Speed++;
+                Target_Speed = 0;
+                if (!prev_neutral) { stop = 1; }
             }
-            if (Back == 1) { Target_Speed--; }
+            else
+            {
+                if (Fore == 1)
+                {
+                    if (distance < 50) Target_Speed--;
+                    else               Target_Speed++;
+                }
+                if (Back == 1) { Target_Speed--; }
+            }
+
+            Target_Speed = Target_Speed >  SPEED_Y ?  SPEED_Y :
+                          (Target_Speed < -SPEED_Y ? -SPEED_Y : Target_Speed);
+
+            if ((Left == 0) && (Right == 0)) Target_turn = 0;
+            if (Left  == 1) Target_turn -= 30;
+            if (Right == 1) Target_turn += 30;
+
+            Target_turn = Target_turn >  SPEED_Z ?  SPEED_Z :
+                         (Target_turn < -SPEED_Z ? -SPEED_Z : Target_turn);
+
+            prev_neutral = neutral;
         }
 
-        Target_Speed = Target_Speed >  SPEED_Y ?  SPEED_Y :
-                      (Target_Speed < -SPEED_Y ? -SPEED_Y : Target_Speed);
-
-        if ((Left == 0) && (Right == 0)) Target_turn = 0;
-        if (Left  == 1) Target_turn -= 30;
-        if (Right == 1) Target_turn += 30;
-
-        Target_turn = Target_turn >  SPEED_Z ?  SPEED_Z :
-                     (Target_turn < -SPEED_Z ? -SPEED_Z : Target_turn);
-
-        prev_neutral = neutral;
+        prev_bt_timeout = bt_timeout;
     }
-
-    prev_bt_timeout = bt_timeout;
 
     // 3. Adjust turn Kd: disable gyro damping while actively steering
     Turn_Kd = ((Left == 0) && (Right == 0)) ? 0.6f : 0.0f;
