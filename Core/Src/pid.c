@@ -18,10 +18,10 @@ int Vertical_out, Velocity_out, Turn_out, Target_Speed, Target_turn, MOTO1, MOTO
 float Med_Angle = 3.1;      // Auto-calibrated at startup via Calibrate_Med_Angle()
 int   gyrox_offset = 0;     // Auto-calibrated gyrox zero-bias, subtracted every loop
 
-// PID gains
-float Vertical_Kp = 480, Vertical_Kd = 1.2;    // Vertical (balance) PD
-float Velocity_Kp = 0.0,  Velocity_Ki = 0.0;   // Velocity PI — set to 0 until vertical is stable
-float Turn_Kp = 10, Turn_Kd = 0.6;             // Turn PD
+// PID gains（实车调参结果：直立 vkp/vkd，速度 skp/ski）
+float Vertical_Kp = 580, Vertical_Kd = 0.9f;       // Vertical (balance) PD
+float Velocity_Kp = 0.15f, Velocity_Ki = 0.00075f; // Velocity PI
+float Turn_Kp = 10, Turn_Kd = 0.6;                 // Turn PD
 
 // stop=1 clears velocity integral.
 // MUST only be set once per stop event (edge-triggered), NOT every loop.
